@@ -230,7 +230,7 @@ not installed"*. GameVoice needs both. `native.py` forces the working order,
 ## Development
 
 ```powershell
-.venv\Scripts\python.exe -m pytest tests\ -q                      # 186 tests
+.venv\Scripts\python.exe -m pytest tests\ -q                      # the full suite
 .venv\Scripts\python.exe -m pytest tests\ -q -m "not integration" # no OCR or voices needed
 .venv\Scripts\python.exe tools\build_voice_table.py               # re-measure after adding voices
 .venv\Scripts\python.exe tools\make_icon.py                       # rebuild the icon

@@ -64,6 +64,16 @@ class TtsEngine:
     def synthesize(self, text: str, assignment: VoiceAssignment) -> Clip | None:
         raise NotImplementedError
 
+    def describe(self, assignment: VoiceAssignment) -> str:
+        """The voice this engine will actually speak with.
+
+        The router always resolves a Piper voice, because that is what the
+        catalogue holds. An engine that ignores that choice - SAPI picks from
+        Windows' own voices by gender - has to say so, or the interface reports
+        a voice nobody heard.
+        """
+        return assignment.voice.label
+
     def warm_up(self, assignment: VoiceAssignment) -> None:
         """Pay one-off costs before the first real line arrives."""
 
@@ -216,6 +226,16 @@ class SapiEngine(TtsEngine):
 
     def available(self) -> list[tuple[str, str]]:
         return list(self._voice_tokens)
+
+    def describe(self, assignment: VoiceAssignment) -> str:
+        """The Windows voice that will be used, not the Piper one requested."""
+        for name, gender in self._voice_tokens:
+            if gender == assignment.gender:
+                return f"{name} ({gender})"
+        if self._voice_tokens:
+            name, gender = self._voice_tokens[0]
+            return f"{name} ({gender})"
+        return "no Windows voice available"
 
     def _pick_token(self, speaker, gender: str):
         tokens = list(speaker.GetVoices())

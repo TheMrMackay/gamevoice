@@ -273,8 +273,12 @@ def list_profiles() -> dict[str, Profile]:
 class AppSettings:
     """Settings that are not per-game."""
 
+    # An empty string means "not bound". Every one of these is meant to be
+    # usable with a game in the foreground, which is why they are global.
     hotkey_toggle: str = "ctrl+alt+v"
     hotkey_stop: str = "ctrl+alt+x"
+    hotkey_skip: str = ""
+    hotkey_replay: str = ""
     auto_switch_profile: bool = True
     start_paused: bool = True
     log_lines: bool = True

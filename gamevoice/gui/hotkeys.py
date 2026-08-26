@@ -108,6 +108,25 @@ class HotkeyManager(QAbstractNativeEventFilter):
         log.info("registered hotkey %s", spec)
         return hotkey_id
 
+    def rebind(self, bindings: list[tuple[str, Callable[[], None]]]) -> dict[str, str]:
+        """Replace every binding at once.
+
+        Returns spec -> error for the ones Windows refused, empty if all took.
+        Rebinding as a set rather than one at a time matters: a combination
+        cannot be re-registered while the old registration still holds it, so
+        swapping two hotkeys would otherwise fail on the second.
+        """
+        self.unregister_all()
+        failures: dict[str, str] = {}
+        for spec, callback in bindings:
+            if not spec or not spec.strip():
+                continue
+            try:
+                self.register(spec, callback)
+            except HotkeyError as exc:
+                failures[spec] = str(exc)
+        return failures
+
     def unregister_all(self) -> None:
         for hotkey_id in list(self._callbacks):
             try:

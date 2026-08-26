@@ -48,7 +48,14 @@ SYNTH_QUEUE_MAX = 16
 class SpokenLine:
     utterance: Utterance
     assignment: VoiceAssignment
+    # What the engine actually spoke with. Not always the router's choice: the
+    # SAPI engine picks from Windows' own voices by gender instead.
+    voice_label: str = ""
     at: float = field(default_factory=time.time)
+
+    @property
+    def voice(self) -> str:
+        return self.voice_label or self.assignment.voice.key or "-"
 
 
 @dataclass
@@ -500,7 +507,8 @@ class GameVoiceEngine:
                 announced = True
                 self.stats.lines_spoken += 1
                 if self._on_line is not None:
-                    self._on_line(SpokenLine(utterance, assignment))
+                    label = self._tts.describe(assignment) if self._tts else ""
+                    self._on_line(SpokenLine(utterance, assignment, label))
 
     # -- notifications -----------------------------------------------------
 

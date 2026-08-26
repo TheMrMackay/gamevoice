@@ -46,9 +46,10 @@ from ..tts import SynthesisError
 from ..voices import VoiceCatalog
 from .capture_tab import CaptureTab
 from .download_dialog import DownloadDialog
-from .hotkeys import HotkeyError, HotkeyManager
+from .hotkeys import HotkeyManager
 from .profiles_tab import ProfilesTab
 from .region_picker import pick_region
+from .settings_tab import SettingsTab
 from .status_tab import StatusTab
 from .voices_tab import VoicesTab
 
@@ -156,16 +157,17 @@ class MainWindow(QMainWindow):
         self.voices_tab = VoicesTab(self._catalog)
         self.capture_tab = CaptureTab()
         self.profiles_tab = ProfilesTab()
+        self.settings_tab = SettingsTab(self._settings)
         self.tabs.addTab(self.status_tab, "Listening")
         self.tabs.addTab(self.voices_tab, "Voices")
         self.tabs.addTab(self.capture_tab, "Capture")
         self.tabs.addTab(self.profiles_tab, "Profiles")
+        self.tabs.addTab(self.settings_tab, "Settings")
         layout.addWidget(self.tabs, stretch=1)
 
         hint = QLabel(
-            f"Toggle from anywhere with {self._settings.hotkey_toggle}, "
-            f"silence with {self._settings.hotkey_stop}. "
-            "Closing this window keeps GameVoice running in the tray."
+            "Hotkeys work while a game has focus - set them on the Settings "
+            "tab. Closing this window keeps GameVoice running in the tray."
         )
         hint.setStyleSheet("color: #888;")
         hint.setWordWrap(True)
@@ -193,6 +195,9 @@ class MainWindow(QMainWindow):
         self.profiles_tab.duplicate_requested.connect(self._duplicate_profile)
         self.profiles_tab.delete_requested.connect(self._delete_profile)
         self.profiles_tab.detect_requested.connect(self._detect_into_profile)
+
+        self.settings_tab.hotkeys_changed.connect(self._apply_hotkeys)
+        self.settings_tab.settings_changed.connect(self._on_settings_changed)
 
         self.voices_tab.changed.connect(self._mark_dirty)
         self.voices_tab.preview_requested.connect(self._preview)
@@ -240,15 +245,26 @@ class MainWindow(QMainWindow):
     def _install_hotkeys(self) -> None:
         app = QApplication.instance()
         app.installNativeEventFilter(self._hotkeys)
-        for spec, handler in (
-            (self._settings.hotkey_toggle, self._toggle),
-            (self._settings.hotkey_stop, self._silence),
-        ):
-            try:
-                self._hotkeys.register(spec, handler)
-            except HotkeyError as exc:
-                log.warning("hotkey %s unavailable: %s", spec, exc)
-                self.status_tab.set_status(str(exc), error=True)
+        self._apply_hotkeys()
+
+    def _apply_hotkeys(self) -> None:
+        """(Re)claim every hotkey and report which ones Windows refused."""
+        failures = self._hotkeys.rebind(
+            [
+                (self._settings.hotkey_toggle, self._toggle),
+                (self._settings.hotkey_stop, self._silence),
+                (self._settings.hotkey_skip, self._skip_line),
+                (self._settings.hotkey_replay, self._replay_line),
+            ]
+        )
+        self.settings_tab.report(failures)
+        if failures:
+            first = next(iter(failures.values()))
+            self.status_tab.set_status(first, error=True)
+        try:
+            self._settings.save()
+        except OSError as exc:
+            log.error("could not save settings: %s", exc)
 
     # -- engine ------------------------------------------------------------
 
@@ -291,6 +307,17 @@ class MainWindow(QMainWindow):
     def _silence(self) -> None:
         if self._engine is not None:
             self._engine.silence()
+
+    def _on_settings_changed(self) -> None:
+        try:
+            self._settings.save()
+        except OSError as exc:
+            log.error("could not save settings: %s", exc)
+            return
+        if self._engine is not None:
+            self.status_tab.set_status(
+                "Saved. The audio device takes effect next time reading starts."
+            )
 
     def _skip_line(self) -> None:
         if self._engine is None:

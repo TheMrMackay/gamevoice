@@ -170,9 +170,15 @@ def cmd_say(args: argparse.Namespace) -> int:
 
     router = VoiceRouter(catalog, game_id=args.game)
     assignment = router.resolve(args.speaker)
-    print(f"{args.speaker or '(narrator)'} -> {assignment.voice.label} [{assignment.source}]")
 
+    # Built before the line is printed, so what is reported is the voice the
+    # engine will really use - SAPI ignores the router's choice and picks from
+    # Windows' own voices by gender.
     engine = create_tts(args.engine)
+    print(
+        f"{args.speaker or '(narrator)'} -> {engine.describe(assignment)} "
+        f"[{assignment.source}, {engine.name}]"
+    )
     clip = engine.synthesize(args.text, assignment)
     if clip is None:
         print("synthesis produced no audio", file=sys.stderr)
@@ -203,7 +209,7 @@ def cmd_run(args: argparse.Namespace) -> int:
 
     def on_line(line: SpokenLine) -> None:
         who = line.utterance.speaker or "narrator"
-        print(f"[{who}] {line.utterance.text}   <{line.assignment.voice.key}>", flush=True)
+        print(f"[{who}] {line.utterance.text}   <{line.voice}>", flush=True)
 
     engine = GameVoiceEngine(
         catalog,

@@ -117,7 +117,7 @@ class StatusTab(QWidget):
         cells = [
             time.strftime("%H:%M:%S", time.localtime(line.at)),
             speaker,
-            line.assignment.voice.key or "-",
+            line.voice,
             line.utterance.text,
         ]
         for column, text in enumerate(cells):
