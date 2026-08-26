@@ -1,0 +1,49 @@
+{
+  "name": "template-visual-novel",
+  "title": "TEMPLATE - visual novel / heavy text box",
+  "match_exe": [],
+  "match_title": [],
+  "capture": {
+    "monitor": 1,
+    "text_region": null,
+    "speaker_region": null,
+    "bottom_band": 0.42,
+    "fps": 6.0,
+    "upscale": 1.5,
+    "contrast": 1.4,
+    "invert": false,
+    "grayscale": true,
+    "auto_upscale": true,
+    "max_upscale": 6.0,
+    "trigger": "change",
+    "change_threshold": 0.004,
+    "change_tolerance": 10,
+    "max_idle_seconds": 15.0
+  },
+  "detect": {
+    "settle_frames": 3,
+    "similarity_threshold": 0.93,
+    "min_chars": 6,
+    "max_chars": 6000,
+    "history": 32,
+    "strip_patterns": [
+      "\\b(?:auto|skip|log|save|load|config)\\b"
+    ],
+    "ignore_patterns": []
+  },
+  "speech": {
+    "engine": "piper",
+    "narrator_voice": "",
+    "male_voice": "",
+    "female_voice": "",
+    "rate": 1.05,
+    "volume": 0.9,
+    "pitch_variety": 0.08,
+    "interrupt_on_new_line": false,
+    "speak_speaker_name": false,
+    "output_device": null,
+    "auto_assign": true
+  },
+  "voice_overrides": {},
+  "gender_hints": {}
+}

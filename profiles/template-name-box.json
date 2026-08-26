@@ -1,0 +1,52 @@
+{
+  "name": "template-name-box",
+  "title": "TEMPLATE - game with a separate speaker name box",
+  "match_exe": [],
+  "match_title": [],
+  "capture": {
+    "monitor": 1,
+    "text_region": null,
+    "speaker_region": {
+      "left": 0,
+      "top": 0,
+      "width": 0,
+      "height": 0
+    },
+    "bottom_band": 0.3,
+    "fps": 8.0,
+    "upscale": 2.0,
+    "contrast": 1.7,
+    "invert": false,
+    "grayscale": true,
+    "auto_upscale": true,
+    "max_upscale": 6.0,
+    "trigger": "change",
+    "change_threshold": 0.004,
+    "change_tolerance": 10,
+    "max_idle_seconds": 8.0
+  },
+  "detect": {
+    "settle_frames": 2,
+    "similarity_threshold": 0.9,
+    "min_chars": 3,
+    "max_chars": 4000,
+    "history": 24,
+    "strip_patterns": [],
+    "ignore_patterns": []
+  },
+  "speech": {
+    "engine": "piper",
+    "narrator_voice": "",
+    "male_voice": "",
+    "female_voice": "",
+    "rate": 1.0,
+    "volume": 0.9,
+    "pitch_variety": 0.06,
+    "interrupt_on_new_line": false,
+    "speak_speaker_name": false,
+    "output_device": null,
+    "auto_assign": true
+  },
+  "voice_overrides": {},
+  "gender_hints": {}
+}

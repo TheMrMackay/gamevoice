@@ -1,0 +1,8 @@
+# Voice models: ~260 MB of binaries, fetched by install.ps1
+voices/
+
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.scratch/
