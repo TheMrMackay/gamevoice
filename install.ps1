@@ -126,7 +126,7 @@ if ($LASTEXITCODE -ne 0) { throw 'Could not upgrade pip.' }
 
 Write-Step 'Installing dependencies'
 Write-Note 'Around 250 MB. This is the slow part.'
-& $venvPython -m pip install -r (Join-Path $root 'requirements.txt') --disable-pip-version-check
+& $venvPython -m pip install -e $root --disable-pip-version-check
 if ($LASTEXITCODE -ne 0) { throw 'Dependency installation failed. The output above says why.' }
 Write-Ok 'Installed.'
 

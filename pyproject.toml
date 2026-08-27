@@ -1,3 +1,7 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "gamevoice"
 version = "1.0.0"
@@ -47,6 +51,9 @@ Issues = "https://github.com/TheMrMackay/gamevoice/issues"
 
 [project.scripts]
 gamevoice = "gamevoice.cli:main"
+
+[tool.setuptools]
+packages = ["gamevoice", "gamevoice.gui"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
