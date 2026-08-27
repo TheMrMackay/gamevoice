@@ -1,0 +1,43 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.11', '3.12', '3.13']
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run tests
+        env:
+          # No display on the runner; Qt widgets still construct off-screen.
+          QT_QPA_PLATFORM: offscreen
+        run: pytest tests/ -q -m "not integration"
+
+      - name: Check the installer parses
+        shell: pwsh
+        run: |
+          foreach ($script in 'install.ps1','uninstall.ps1','tools/create-shortcut.ps1') {
+            $errors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile(
+              (Resolve-Path $script), [ref]$null, [ref]$errors) | Out-Null
+            if ($errors) { throw "$script has syntax errors: $($errors[0].Message)" }
+            Write-Host "$script parses"
+          }
