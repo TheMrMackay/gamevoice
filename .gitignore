@@ -6,3 +6,8 @@ __pycache__/
 *.pyc
 .pytest_cache/
 .scratch/
+
+# editable-install build metadata
+*.egg-info/
+build/
+dist/
