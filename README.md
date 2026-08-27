@@ -33,14 +33,30 @@ powershell -ExecutionPolicy Bypass -File install.ps1
 
 The installer finds a Python 3.10+, builds an isolated environment inside the
 folder, fetches the voices, and makes Desktop and Start Menu shortcuts. It
-writes nothing to the registry and modifies no system Python — **uninstalling is
-deleting the folder and the two shortcuts.**
+writes nothing to the registry and modifies no system Python.
 
 | Flag | Effect |
 |---|---|
 | `-NoVoices` | Skip the ~260 MB download and use the Windows built-in voices |
 | `-NoShortcuts` | Do not create Desktop or Start Menu entries |
 | `-Python <path>` | Use a specific `python.exe` |
+
+### Uninstall
+
+```powershell
+powershell -ExecutionPolicy Bypass -File uninstall.ps1
+```
+
+Stops GameVoice if it is running, then removes the environment, the voice models
+and the shortcuts. **Your tuned profiles and settings are kept** — they are work
+a download cannot replace. Then delete the folder.
+
+| Flag | Effect |
+|---|---|
+| `-WhatIf` | Show what would go, remove nothing |
+| `-RemoveSettings` | Also delete `%LOCALAPPDATA%\GameVoice` — profiles, voices, hotkeys, logs |
+| `-KeepVoices` | Leave the ~260 MB of models, for reinstalling later |
+| `-Force` | Do not ask |
 
 ## Use it
 
