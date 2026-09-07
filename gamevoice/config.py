@@ -113,6 +113,16 @@ class CaptureSettings:
     contrast: float = 1.6
     invert: bool = False
     grayscale: bool = True
+    # Auto mode: when no text_region is set, periodically scan the whole
+    # foreground window for a block of dialogue-shaped text and read just that
+    # box, wherever the game happens to draw it. Falls back to the bottom band
+    # while nothing has been found.
+    auto_region: bool = True
+    scan_interval: float = 1.0
+    hold_scan_interval: float = 3.0
+    lost_seconds: float = 4.0
+    scan_width: int = 1280
+    max_region_fraction: float = 0.6
 
 
 @dataclass

@@ -352,8 +352,10 @@ class MainWindow(QMainWindow):
             f"{stats.lines_seen} detected - "
             f"OCR {stats.average_ocr_ms:.0f} ms average - "
             f"upscale {stats.upscale:.2f}x - "
-            f"{stats.frames_skipped} frames unchanged"
+            f"{stats.frames_skipped} frames unchanged - "
+            f"{stats.scans} scans"
         )
+        self.capture_tab.show_auto_region(self._engine.detected_region)
         window = self._engine.last_window
         if window is not None:
             self.status_tab.set_window(

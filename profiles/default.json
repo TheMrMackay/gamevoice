@@ -18,7 +18,13 @@
     "trigger": "change",
     "change_threshold": 0.004,
     "change_tolerance": 10,
-    "max_idle_seconds": 8.0
+    "max_idle_seconds": 8.0,
+    "auto_region": true,
+    "scan_interval": 1.0,
+    "hold_scan_interval": 3.0,
+    "lost_seconds": 4.0,
+    "scan_width": 1280,
+    "max_region_fraction": 0.6
   },
   "detect": {
     "settle_frames": 2,

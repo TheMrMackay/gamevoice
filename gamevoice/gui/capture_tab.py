@@ -9,7 +9,10 @@ from __future__ import annotations
 
 import logging
 import math
+import time
 
+import numpy as np
+from PIL import Image, ImageDraw
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QImage, QPixmap
 from PySide6.QtWidgets import (
@@ -30,6 +33,7 @@ from PySide6.QtWidgets import (
 from ..capture import ScreenGrabber, foreground_window, looks_blank, resolve_regions
 from ..config import Profile, Region
 from ..dialogue import parse
+from ..locator import DialogueLocator
 from ..ocr import (
     AdaptiveUpscale,
     OcrUnavailable,
@@ -99,6 +103,16 @@ class CaptureTab(QWidget):
         text_row.addStretch(1)
         form.addRow("Dialogue text", self.text_region_label)
         form.addRow("", self._wrap(text_row))
+
+        self.auto_region_check = QCheckBox("Find the dialogue area automatically")
+        self.auto_region_check.setChecked(True)
+        self.auto_region_check.setToolTip(
+            "Every so often, read the whole game window at reduced size and "
+            "keep the box that looks like dialogue, wherever the game draws "
+            "it. A picked dialogue area overrides this."
+        )
+        self.auto_region_check.stateChanged.connect(self._auto_region_toggled)
+        form.addRow("", self.auto_region_check)
 
         self.speaker_region_label = QLabel("Not set - name is read from the text")
         speaker_row = QHBoxLayout()
@@ -258,6 +272,11 @@ class CaptureTab(QWidget):
         self.sensitivity_slider.setEnabled(on_change)
         self.max_idle_spin.setEnabled(on_change)
 
+    def _auto_region_toggled(self, *_args) -> None:
+        if self._profile is not None:
+            self._show_region(self._profile.capture.text_region, "text")
+        self._emit_changed()
+
     def _emit_changed(self, *_args) -> None:
         self._update_trigger_enabled()
         if not self._loading:
@@ -282,6 +301,7 @@ class CaptureTab(QWidget):
             self.max_idle_spin.setValue(capture.max_idle_seconds)
             self._update_trigger_enabled()
             self.auto_upscale_check.setChecked(capture.auto_upscale)
+            self.auto_region_check.setChecked(capture.auto_region)
             self.upscale_spin.setValue(capture.upscale)
             self.max_upscale_spin.setValue(capture.max_upscale)
             self.contrast_spin.setValue(capture.contrast)
@@ -301,6 +321,7 @@ class CaptureTab(QWidget):
         capture.change_threshold = slider_to_threshold(self.sensitivity_slider.value())
         capture.max_idle_seconds = self.max_idle_spin.value()
         capture.auto_upscale = self.auto_upscale_check.isChecked()
+        capture.auto_region = self.auto_region_check.isChecked()
         capture.upscale = self.upscale_spin.value()
         capture.max_upscale = self.max_upscale_spin.value()
         capture.contrast = self.contrast_spin.value()
@@ -321,11 +342,27 @@ class CaptureTab(QWidget):
         if region is not None and region.is_valid():
             text = f"{region.width} x {region.height} at ({region.left}, {region.top})"
         elif which == "text":
-            text = "Automatic (bottom of the game window)"
+            if self.auto_region_check.isChecked():
+                text = "Automatic - scanning the window for the dialogue box"
+            else:
+                text = "Automatic (bottom of the game window)"
         else:
             text = "Not set - name is read from the text"
         label = self.text_region_label if which == "text" else self.speaker_region_label
         label.setText(text)
+
+    def show_auto_region(self, region: Region | None) -> None:
+        """Live update from the engine: the box auto-detection is tracking."""
+        if self._profile is None or self._profile.capture.text_region is not None:
+            return
+        if not self.auto_region_check.isChecked():
+            return
+        if region is not None and region.is_valid():
+            self.text_region_label.setText(
+                f"Auto: {region.width} x {region.height} at ({region.left}, {region.top})"
+            )
+        else:
+            self._show_region(None, "text")
 
     # -- live test ---------------------------------------------------------
 
@@ -336,8 +373,21 @@ class CaptureTab(QWidget):
         capture = self._profile.capture
 
         window = foreground_window()
-        region, _ = resolve_regions(capture, self._grabber, window)
+        if self._ocr is None:
+            try:
+                self._ocr = create_engine("en-US")
+            except OcrUnavailable as exc:
+                self._report(str(exc))
+                return
+
+        auto_box = self._find_auto_box(capture, window)
+        if auto_box is not None:
+            region = auto_box
+        else:
+            region, _ = resolve_regions(capture, self._grabber, window)
         frame = self._grabber.grab(region)
+        if frame is not None and auto_box is not None:
+            frame = _draw_box(frame)
 
         if frame is None:
             self._report("The screen grab returned nothing. Try a different monitor.")
@@ -351,13 +401,6 @@ class CaptureTab(QWidget):
             return
 
         self._show_preview(frame)
-
-        if self._ocr is None:
-            try:
-                self._ocr = create_engine("en-US")
-            except OcrUnavailable as exc:
-                self._report(str(exc))
-                return
 
         # Run the same adaptive pass the engine uses, so the scale reported
         # here is the scale the game will actually be read at.
@@ -409,6 +452,11 @@ class CaptureTab(QWidget):
             f"{glyph * applied:.0f} px as read.\n\n"
             f"Found {len(output.lines)} line(s):\n{lines}"
         )
+        if auto_box is not None:
+            summary = (
+                f"Auto-detected dialogue box: {auto_box.width} x {auto_box.height} "
+                f"at ({auto_box.left}, {auto_box.top}).\n\n" + summary
+            )
         edges = clipped_edges(output, int(frame.shape[0] * applied))
         if edges:
             summary += (
@@ -428,6 +476,22 @@ class CaptureTab(QWidget):
             summary += "\n\nNothing here looks like dialogue."
         self._report(summary)
 
+    def _find_auto_box(self, capture, window):
+        """One locator pass, so Test shows the box auto-detection would use."""
+        if not capture.auto_region or capture.text_region is not None:
+            return None
+        if window is None or not window.is_usable:
+            return None
+        if self._ocr is None:
+            return None
+        try:
+            locator = DialogueLocator(capture, self._profile.detect, self._ocr, self._grabber)
+            locator.scan(window, time.time())
+            return locator.region_for(window)
+        except Exception as exc:
+            log.warning("test-capture auto scan failed: %s", exc)
+            return None
+
     def _report(self, message: str) -> None:
         self.result_text.setPlainText(message)
 
@@ -442,3 +506,17 @@ class CaptureTab(QWidget):
             Qt.TransformationMode.SmoothTransformation,
         )
         self.preview_label.setPixmap(pixmap)
+
+
+def _draw_box(frame):
+    """Outline the auto-found box on a copy of the grab, for the preview."""
+    image = Image.fromarray(frame[:, :, :3][:, :, ::-1])
+    draw = ImageDraw.Draw(image)
+    draw.rectangle(
+        [1, 1, image.width - 2, image.height - 2],
+        outline=(255, 90, 90),
+        width=3,
+    )
+    outlined = np.array(image)
+    alpha = np.full((outlined.shape[0], outlined.shape[1], 1), 255, dtype=np.uint8)
+    return np.concatenate([outlined[:, :, ::-1], alpha], axis=2)

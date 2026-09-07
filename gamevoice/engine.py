@@ -25,8 +25,9 @@ from .capture import (
     looks_blank,
     resolve_regions,
 )
-from .config import AppSettings, Profile
+from .config import AppSettings, Profile, Region
 from .dialogue import Stabilizer, Utterance, parse, split_for_speech
+from .locator import DialogueLocator
 from .ocr import (
     AdaptiveUpscale,
     OcrOutput,
@@ -68,6 +69,7 @@ class EngineStats:
     ocr_ms: float = 0.0
     synth_ms: float = 0.0
     upscale: float = 0.0
+    scans: int = 0
     last_error: str = ""
 
     @property
@@ -104,6 +106,7 @@ class GameVoiceEngine:
         self._stabilizer = Stabilizer(self._profile.detect)
         self._scaler = self._build_scaler(self._profile)
         self._changes = self._build_detector(self._profile)
+        self._locator: DialogueLocator | None = None
         # Every piece of one spoken line shares a group id, so a skip drops the
         # whole line rather than just the sentence being said at that instant.
         self._group = 0
@@ -128,6 +131,7 @@ class GameVoiceEngine:
         except Exception as exc:
             self._fail(str(exc))
             raise
+        self._locator = self._build_locator(self._profile)
 
         try:
             self._tts = create_tts(
@@ -195,8 +199,21 @@ class GameVoiceEngine:
     def is_active(self) -> bool:
         return self._active.is_set()
 
+    @property
+    def detected_region(self) -> Region | None:
+        """The auto-found dialogue box in screen coordinates, if any."""
+        locator = self._locator
+        if locator is None or locator.tracked is None:
+            return None
+        window = self.last_window
+        if window is None or not window.is_usable:
+            return None
+        return locator.region_for(window)
+
     def resume(self) -> None:
         self._stabilizer.reset()
+        if self._locator is not None:
+            self._locator.reset()
         self._active.set()
         self._status("Listening")
 
@@ -264,6 +281,12 @@ class GameVoiceEngine:
         )
 
     @staticmethod
+    def _build_locator(self, profile: Profile, ocr) -> DialogueLocator:
+        # ScreenGrabber is thread-confined internally, so the reader thread can
+        # share the engine's one.
+        return DialogueLocator(profile.capture, profile.detect, ocr, self._grabber)
+
+    @staticmethod
     def _build_scaler(profile: Profile) -> AdaptiveUpscale:
         capture = profile.capture
         if not capture.auto_upscale:
@@ -308,6 +331,8 @@ class GameVoiceEngine:
             self._stabilizer = Stabilizer(profile.detect)
             self._scaler = self._build_scaler(profile)
             self._changes = self._build_detector(profile)
+            if self._ocr is not None:
+                self._locator = self._build_locator(profile, self._ocr)
         if self._tts is not None and hasattr(self._tts, "set_rate"):
             self._tts.set_rate(profile.speech.rate)
             self._tts.set_volume(profile.speech.volume)
@@ -361,9 +386,40 @@ class GameVoiceEngine:
             self.set_profile(chosen)
 
     def _read_once(self, profile: Profile, window: WindowInfo | None) -> None:
-        text_region, speaker_region = resolve_regions(
-            profile.capture, self._grabber, window
+        now = time.time()
+        self._tick_pipeline(profile, window, now)
+
+        locator = self._locator
+        if locator is None or window is None or not window.is_usable:
+            return
+        if not locator.scan_due(now):
+            return
+        # The locator reads the whole window at reduced size, on its own
+        # schedule; this is what lets the next ticks read a dialogue box that
+        # sits anywhere on screen instead of only in the bottom band.
+        self.stats.scans += 1
+        try:
+            locator.scan(window, now)
+        except Exception as exc:
+            log.warning("dialogue scan failed: %s", exc)
+
+    def _tick_pipeline(self, profile: Profile, window: WindowInfo | None, now: float) -> None:
+        locator = self._locator
+        auto = (
+            locator is not None
+            and window is not None
+            and window.is_usable
+            and locator.region_for(window) is not None
         )
+        if auto:
+            text_region = locator.region_for(window)
+            # A speaker-name box is still user-pinned geometry, so it applies
+            # whatever way the dialogue box itself was found.
+            _, speaker_region = resolve_regions(profile.capture, self._grabber, window)
+        else:
+            text_region, speaker_region = resolve_regions(
+                profile.capture, self._grabber, window
+            )
         frame = self._grabber.grab(text_region)
         if frame is None or looks_blank(frame):
             return
@@ -372,7 +428,7 @@ class GameVoiceEngine:
         # Grabbing is cheap, recognising is not. In change mode the expensive
         # half only runs when the pixels actually moved.
         if capture.trigger == "change":
-            if not self._changes.changed(frame, time.time()):
+            if not self._changes.changed(frame, now):
                 self.stats.frames_skipped += 1
                 return
 
@@ -392,6 +448,9 @@ class GameVoiceEngine:
         self.stats.ocr_calls += 1
         self.stats.ocr_ms += (time.perf_counter() - started) * 1000.0
         self.stats.upscale = applied_scale
+
+        if auto and locator is not None:
+            locator.report_fast(not output.is_empty, now)
 
         if output.is_empty:
             return

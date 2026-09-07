@@ -5,6 +5,8 @@ they can run in CI on any Windows box with an OCR language pack installed.
 """
 from __future__ import annotations
 
+import time
+
 import numpy as np
 import pytest
 from PIL import Image, ImageDraw, ImageFont
@@ -26,14 +28,30 @@ def _font(size: int):
     return ImageFont.load_default()
 
 
-def render_dialogue(lines: list[str], width: int = 900, size: int = 30) -> np.ndarray:
-    """A dark subtitle box with pale text, the shape most games use."""
-    height = 40 + len(lines) * (size + 14)
-    image = Image.new("RGB", (width, height), (14, 14, 22))
+def render_dialogue(
+    lines: list[str],
+    width: int = 900,
+    size: int = 30,
+    canvas: tuple[int, int] | None = None,
+    at: tuple[int, int] = (0, 0),
+) -> np.ndarray:
+    """A dark subtitle box with pale text, the shape most games use.
+
+    ``canvas`` and ``at`` place the box somewhere on a larger frame, which is
+    how the locator tests exercise dialogue away from the bottom band.
+    """
+    box_height = 40 + len(lines) * (size + 14)
+    image = Image.new("RGB", canvas or (width, box_height), (10, 10, 14))
     draw = ImageDraw.Draw(image)
+    draw.rectangle([at[0], at[1], at[0] + width, at[1] + box_height], fill=(14, 14, 22))
     font = _font(size)
     for index, text in enumerate(lines):
-        draw.text((24, 20 + index * (size + 14)), text, fill=(236, 232, 216), font=font)
+        draw.text(
+            (at[0] + 24, at[1] + 20 + index * (size + 14)),
+            text,
+            fill=(236, 232, 216),
+            font=font,
+        )
     rgb = np.array(image)
     alpha = np.full((rgb.shape[0], rgb.shape[1], 1), 255, dtype=np.uint8)
     return np.concatenate([rgb[:, :, ::-1], alpha], axis=2)
@@ -82,6 +100,33 @@ class TestOcrChain:
 
     def test_a_rendered_frame_is_not_blank(self):
         assert not looks_blank(render_dialogue(["Something is written here."]))
+
+
+class TestLocatorChain:
+    def test_finds_dialogue_outside_the_bottom_band(self, ocr):
+        from gamevoice.capture import WindowInfo
+        from gamevoice.config import CaptureSettings, DetectSettings, Region
+        from gamevoice.locator import DialogueLocator
+
+        frame = render_dialogue(
+            ["Elena: The bridge will not hold much longer."],
+            canvas=(1280, 720),
+            at=(200, 40),
+        )
+
+        class StubGrabber:
+            def grab(self, region):
+                return frame
+
+        window = WindowInfo(1, "Game", "game.exe", Region(0, 0, 1280, 720))
+        locator = DialogueLocator(CaptureSettings(), DetectSettings(), ocr, StubGrabber())
+        assert locator.scan(window, time.time()) is not None
+        box = locator.tracked
+        assert box is not None
+        # The box sits in the top quarter; the old bottom band never saw it.
+        assert box.top < 360
+        assert box.top < 200
+        assert locator.region_for(window) is not None
 
 
 class TestVoiceChain:
