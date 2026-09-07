@@ -123,6 +123,10 @@ class CaptureSettings:
     lost_seconds: float = 4.0
     scan_width: int = 1280
     max_region_fraction: float = 0.6
+    # The dialogue box auto-detection found last time, window-relative. Seeded
+    # back in on the next launch so a game starts tracked instead of searched,
+    # and re-learned if the game has moved its box since.
+    auto_found_region: Region | None = None
 
 
 @dataclass
@@ -192,7 +196,7 @@ def _build(cls: type, payload: Any) -> Any:
         if spec.name not in payload:
             continue
         raw = payload[spec.name]
-        if spec.name in ("text_region", "speaker_region"):
+        if spec.name in ("text_region", "speaker_region", "auto_found_region"):
             kwargs[spec.name] = _build(Region, raw) if raw else None
         elif spec.name == "capture":
             kwargs[spec.name] = _build(CaptureSettings, raw)

@@ -197,6 +197,7 @@ class DialogueLocator:
         detect: DetectSettings,
         ocr,
         grabber: ScreenGrabber,
+        remembered: Region | None = None,
     ) -> None:
         self._capture = capture
         self._ocr = ocr
@@ -207,7 +208,13 @@ class DialogueLocator:
             threshold=capture.change_threshold,
             tolerance=capture.change_tolerance,
         )
-        self._tracked: Region | None = None
+        # Where the box was last session, window-relative. Tracking starts
+        # from it immediately; the first scan confirms it or moves on.
+        self._tracked: Region | None = (
+            remembered if (remembered is not None and remembered.is_valid()) else None
+        )
+        # The engine sets this to persist each box the locator settles on.
+        self.on_track = None
         self._pending: Region | None = None
         self._last_scan = 0.0
         self._last_hit = 0.0
@@ -249,7 +256,18 @@ class DialogueLocator:
 
     def region_for(self, window: WindowInfo | None) -> Region | None:
         """The screen rectangle to read this tick, or None for the old path."""
+        if not self._capture.auto_region:
+            return None
         if self._tracked is None or window is None or not window.is_usable:
+            return None
+        if (
+            self._tracked.left + self._tracked.width > window.rect.width
+            or self._tracked.top + self._tracked.height > window.rect.height
+        ):
+            # A remembered box from a different window size no longer means
+            # anything here; searching again re-learns it within a second.
+            log.info("tracked box does not fit the window; searching again")
+            self._tracked = None
             return None
         return Region(
             left=window.rect.left + self._tracked.left,
@@ -337,12 +355,20 @@ class DialogueLocator:
             return None
         return max(candidates, key=lambda c: c.score)
 
+    def _set_tracked(self, box: Region, why: str) -> None:
+        self._tracked = box
+        if self.on_track is not None:
+            try:
+                self.on_track(box)
+            except Exception as exc:  # persistence must never break reading
+                log.warning("on_track callback failed: %s", exc)
+
     def _adopt(self, best: Candidate, now: float) -> None:
         tracked = self._tracked
         if tracked is None:
             log.info("dialogue found at (%d, %d) %dx%d",
                      best.box.left, best.box.top, best.box.width, best.box.height)
-            self._tracked = best.box
+            self._set_tracked(best.box, "found")
             self._changes.reset()
             return
 
@@ -354,7 +380,7 @@ class DialogueLocator:
         ):
             # Same box, grown or shrunk - typewriter text does this constantly.
             if best.box != tracked:
-                self._tracked = best.box
+                self._set_tracked(best.box, "grown")
                 self._changes.reset()
             self._pending = None
             return
@@ -372,7 +398,7 @@ class DialogueLocator:
     def _switch_to(self, best: Candidate) -> None:
         log.info("dialogue moved to (%d, %d) %dx%d",
                  best.box.left, best.box.top, best.box.width, best.box.height)
-        self._tracked = best.box
+        self._set_tracked(best.box, "moved")
         self._pending = None
         self._changes.reset()
 

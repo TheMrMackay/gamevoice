@@ -56,10 +56,19 @@ class FreshNoiseGrabber:
         )
 
 
-def make_locator(output: OcrOutput, **capture_overrides) -> tuple[DialogueLocator, StubOcr]:
+def make_locator(
+    output: OcrOutput,
+    remembered: Region | None = None,
+    **capture_overrides,
+) -> tuple[DialogueLocator, StubOcr]:
     capture = CaptureSettings(**capture_overrides)
     ocr = StubOcr(output)
-    return DialogueLocator(capture, DetectSettings(), ocr, FreshNoiseGrabber()), ocr
+    return (
+        DialogueLocator(
+            capture, DetectSettings(), ocr, FreshNoiseGrabber(), remembered=remembered
+        ),
+        ocr,
+    )
 
 
 def lines_at(*specs: tuple[str, float, float]) -> OcrOutput:
@@ -244,3 +253,49 @@ class TestSwitching:
         locator.reset()
         assert locator.tracked is None
         assert locator.state == "searching"
+
+
+class TestPersistence:
+    def test_a_remembered_box_is_tracked_from_the_start(self):
+        remembered = Region(250, 500, 500, 100)
+        locator, ocr = make_locator(
+            lines_at(("Elena: We ride at dawn.", 300.0, 60.0)), remembered=remembered
+        )
+        assert locator.state == "tracking"
+        assert ocr.calls == 0  # no scan needed to start
+        screen = locator.region_for(WINDOW)
+        assert screen is not None
+        assert screen.top == WINDOW.rect.top + remembered.top
+
+    def test_an_off_mode_ignores_the_remembered_box(self):
+        remembered = Region(250, 500, 500, 100)
+        locator, _ = make_locator(
+            lines_at(("Elena: We ride at dawn.", 300.0, 60.0)),
+            remembered=remembered,
+            auto_region=False,
+        )
+        assert locator.state == "off"
+        assert locator.region_for(WINDOW) is None
+
+    def test_a_remembered_box_that_no_longer_fits_is_dropped(self):
+        remembered = Region(250, 500, 500, 400)  # runs past the 720 px window
+        locator, _ = make_locator(
+            lines_at(("Elena: We ride at dawn.", 300.0, 60.0)), remembered=remembered
+        )
+        assert locator.region_for(WINDOW) is None
+        assert locator.tracked is None
+        assert locator.state == "searching"
+
+    def test_an_invalid_remembered_box_is_ignored(self):
+        locator, _ = make_locator(
+            lines_at(("Elena: We ride at dawn.", 300.0, 60.0)),
+            remembered=Region(0, 0, 4, 4),
+        )
+        assert locator.tracked is None
+
+    def test_the_engine_is_told_about_each_box(self):
+        learned: list[Region] = []
+        locator, _ = make_locator(lines_at(("Elena: We ride at dawn.", 300.0, 60.0)))
+        locator.on_track = learned.append
+        locator.scan(WINDOW, time.time())
+        assert learned and learned[-1] == locator.tracked

@@ -25,7 +25,7 @@ from .capture import (
     looks_blank,
     resolve_regions,
 )
-from .config import AppSettings, Profile, Region
+from .config import AppSettings, Profile, Region, save_profile
 from .dialogue import Stabilizer, Utterance, parse, split_for_speech
 from .locator import DialogueLocator
 from .ocr import (
@@ -43,6 +43,9 @@ log = logging.getLogger(__name__)
 
 WINDOW_POLL_SECONDS = 1.0
 SYNTH_QUEUE_MAX = 16
+# A learned dialogue box is written to the profile once it has stopped moving
+# for this long, rather than on every typewriter-driven change.
+REGION_SAVE_DELAY = 5.0
 
 
 @dataclass
@@ -119,6 +122,7 @@ class GameVoiceEngine:
         self._lock = threading.RLock()
         self.stats = EngineStats()
         self.last_window: WindowInfo | None = None
+        self._learn_dirty_at: float | None = None
 
     # -- lifecycle ---------------------------------------------------------
 
@@ -170,6 +174,7 @@ class GameVoiceEngine:
             return
         self._running.clear()
         self._active.clear()
+        self._flush_learned_region(time.time(), force=True)
         try:
             self._queue.put_nowait(None)
         except queue.Full:
@@ -212,8 +217,10 @@ class GameVoiceEngine:
 
     def resume(self) -> None:
         self._stabilizer.reset()
-        if self._locator is not None:
-            self._locator.reset()
+        if self._ocr is not None:
+            # Rebuilt rather than reset: a remembered box from the profile is
+            # worth starting from again.
+            self._locator = self._build_locator(self._profile, self._ocr)
         self._active.set()
         self._status("Listening")
 
@@ -284,7 +291,34 @@ class GameVoiceEngine:
     def _build_locator(self, profile: Profile, ocr) -> DialogueLocator:
         # ScreenGrabber is thread-confined internally, so the reader thread can
         # share the engine's one.
-        return DialogueLocator(profile.capture, profile.detect, ocr, self._grabber)
+        locator = DialogueLocator(
+            profile.capture,
+            profile.detect,
+            ocr,
+            self._grabber,
+            remembered=profile.capture.auto_found_region,
+        )
+        locator.on_track = self._on_region_learned
+        return locator
+
+    def _on_region_learned(self, box: Region) -> None:
+        """Remember where the dialogue box was found, and save it soon."""
+        with self._lock:
+            if self._profile.capture.auto_found_region == box:
+                return
+            self._profile.capture.auto_found_region = box
+            self._learn_dirty_at = time.time()
+
+    def _flush_learned_region(self, now: float, force: bool = False) -> None:
+        if self._learn_dirty_at is None:
+            return
+        if not force and now - self._learn_dirty_at < REGION_SAVE_DELAY:
+            return
+        self._learn_dirty_at = None
+        try:
+            save_profile(self._profile)
+        except OSError as exc:
+            log.error("could not save the learned dialogue region: %s", exc)
 
     @staticmethod
     def _build_scaler(profile: Profile) -> AdaptiveUpscale:
@@ -372,6 +406,7 @@ class GameVoiceEngine:
                         profile = self.profile
 
                 self._read_once(profile, window)
+                self._flush_learned_region(now)
             except Exception as exc:
                 log.exception("reader loop error")
                 self._fail(f"Reader error: {exc}")

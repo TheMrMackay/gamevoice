@@ -68,8 +68,23 @@ class TestRoundTrip:
         assert restored.match_exe == ["testgame.exe"]
         assert restored.capture.text_region == Region(10, 20, 300, 80)
         assert restored.capture.fps == 6.0
+        assert restored.capture.auto_found_region is None
         assert restored.voice_overrides == {"elena": "model-medium#7"}
         assert restored.gender_hints == {"zyrthax": "female"}
+
+    def test_a_learned_region_survives_save_and_load(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("GAMEVOICE_HOME", str(tmp_path))
+        from gamevoice import config
+
+        profile = Profile(
+            name="test-game",
+            capture=CaptureSettings(auto_found_region=Region(250, 500, 500, 120)),
+        )
+        path = config.save_profile(profile)
+        restored = config.load_profile_file(path)
+
+        assert restored is not None
+        assert restored.capture.auto_found_region == Region(250, 500, 500, 120)
 
     def test_unknown_keys_are_ignored(self, tmp_path):
         path = tmp_path / "old.json"
