@@ -486,22 +486,41 @@ class MainWindow(QMainWindow):
         )
 
     def _detect_into_profile(self) -> None:
-        from ..capture import foreground_window
+        """Fill match fields from the game that is in front.
+
+        Clicking the button puts GameVoice itself at the front of the queue,
+        so the window hides first and the reading is taken once it is gone -
+        the same trick the region picker uses.
+        """
+        from ..capture import foreground_is_self, foreground_window
         from ..profiles import normalize_title
 
-        window = foreground_window()
-        if not window.is_usable:
-            QMessageBox.information(
-                self, "No game found",
-                "Bring the game to the front, then press this again.",
-            )
-            return
-        self.profiles_tab.fill_from_window(
-            window.exe, normalize_title(window.title)
-        )
-        self.status_tab.set_status(
-            f"Filled from {window.exe or 'the current window'}"
-        )
+        was_visible = self.isVisible()
+        self.hide()
+
+        def detect() -> None:
+            try:
+                window = foreground_window()
+                if not window.is_usable or foreground_is_self():
+                    QMessageBox.information(
+                        self, "No game found",
+                        "GameVoice was still the window in front. Switch to "
+                        "the game, then press Fill again.",
+                    )
+                    return
+                self.profiles_tab.fill_from_window(
+                    window.exe, normalize_title(window.title)
+                )
+                self.status_tab.set_status(
+                    f"Filled from {window.exe or 'the current window'}"
+                )
+            finally:
+                if was_visible:
+                    self.show()
+                    self.raise_()
+
+        # A short delay lets this window finish hiding before the reading.
+        QTimer.singleShot(250, detect)
 
     def _apply_ui_to_profile(self) -> None:
         self.voices_tab.apply_to(self._profile)

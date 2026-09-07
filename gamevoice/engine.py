@@ -135,7 +135,7 @@ class GameVoiceEngine:
         except Exception as exc:
             self._fail(str(exc))
             raise
-        self._locator = self._build_locator(self._profile)
+        self._locator = self._build_locator(self._profile, self._ocr)
 
         try:
             self._tts = create_tts(
@@ -287,7 +287,6 @@ class GameVoiceEngine:
             max_idle=capture.max_idle_seconds,
         )
 
-    @staticmethod
     def _build_locator(self, profile: Profile, ocr) -> DialogueLocator:
         # ScreenGrabber is thread-confined internally, so the reader thread can
         # share the engine's one.

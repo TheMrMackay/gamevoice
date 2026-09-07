@@ -82,6 +82,21 @@ def foreground_window() -> WindowInfo:
     return WindowInfo(handle, title_buf.value, _process_exe(pid.value), region)
 
 
+def foreground_is_self() -> bool:
+    """True when the window in front belongs to this process.
+
+    Clicking a button in GameVoice makes GameVoice the foreground window, so
+    anything that means to look at "the game in front" has to be able to
+    recognise and skip its own window.
+    """
+    handle = _user32.GetForegroundWindow()
+    if not handle:
+        return False
+    pid = wintypes.DWORD()
+    _user32.GetWindowThreadProcessId(handle, ctypes.byref(pid))
+    return pid.value == _kernel32.GetCurrentProcessId()
+
+
 def set_dpi_aware() -> None:
     """Report true pixels on a scaled display.
 
